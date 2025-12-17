@@ -1,16 +1,8 @@
-// LiveSessionModal component
+// LiveSessionModal component - Refactored to use Agent Runtime
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Agent, AgentFile, TranscriptTurn } from '../../../types';
-import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
-import { createPcmBlob, decodeAudioData, calculateVolumeLevel, base64ToUint8Array } from '../../../utils';
-import { getAgentMemory, saveSessionTranscript } from '../../../services/storage/memoryStorage';
-import { createNewFile, getAgentFiles } from '../../../services/storage/fileStorage';
-import { getGenAIClient } from '../../../services/genai/client';
-import { generateImage } from '../../../services/genai/imageGeneration';
-import { SESSION_TOOLS } from '../../../config/tools';
-import { APP_CONFIG } from '../../../config/constants';
-import { safeBtoa } from '../../../utils/base64';
+import React, { useEffect, useRef, useState } from 'react';
+import { Agent, AgentFile } from '../../../types';
+import { useAgentSession } from '../../../hooks';
 import { X, Mic, MicOff, FileText, Image as ImageIcon, Monitor, Code, Users, Plus } from 'lucide-react';
 
 interface LiveSessionModalProps {
@@ -21,343 +13,35 @@ interface LiveSessionModalProps {
 }
 
 export const LiveSessionModal: React.FC<LiveSessionModalProps> = ({ activeAgents, allAgents, onClose, onAddAgent }) => {
-    const [status, setStatus] = useState<'connecting' | 'connected' | 'error' | 'disconnected'>('connecting');
-    const [errorMsg, setErrorMsg] = useState<string>('');
-    const [isMicMuted, setIsMicMuted] = useState(false);
-    const [volumeLevel, setVolumeLevel] = useState(0);
     const [showInvitePanel, setShowInvitePanel] = useState(false);
-
-    // File System State
-    const [files, setFiles] = useState<AgentFile[]>([]);
-    const [presentedFile, setPresentedFile] = useState<AgentFile | null>(null);
-
-    // Transcript State (for Memory)
-    const transcriptRef = useRef<TranscriptTurn[]>([]);
-    const currentInputTransRef = useRef('');
-    const currentOutputTransRef = useRef('');
-
-    // Refs for audio/session
-    const audioContextRef = useRef<AudioContext | null>(null);
-    const inputContextRef = useRef<AudioContext | null>(null);
-    const streamRef = useRef<MediaStream | null>(null);
-    const sessionRef = useRef<any>(null);
-    const nextStartTimeRef = useRef<number>(0);
-    const audioSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-    const isMountedRef = useRef(true);
-    const hasStartedRef = useRef(false); // Guard against double-start in StrictMode
 
     // Track the previous length of active agents to detect new additions
     const prevAgentsLengthRef = useRef(activeAgents.length);
 
-    // Load initial files (all agents involved)
-    useEffect(() => {
-        let allFiles: AgentFile[] = [];
-        activeAgents.forEach(a => {
-            allFiles = [...allFiles, ...getAgentFiles(a.id)];
-        });
-        setFiles(allFiles.sort((a, b) => b.updatedAt - a.updatedAt));
-    }, [activeAgents]);
-
-    const startSession = useCallback(async () => {
-        // Prevent double-start from React StrictMode
-        if (hasStartedRef.current) {
-            console.log('Session already started, skipping duplicate initialization');
-            return;
-        }
-        hasStartedRef.current = true;
-
-        try {
-            const ai = getGenAIClient();
-            if (!ai) throw new Error("API Key is missing.");
-            if (activeAgents.length === 0) throw new Error("No agents selected.");
-
-            // Audio Setup
-            inputContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: APP_CONFIG.AUDIO_SAMPLE_RATE_INPUT });
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: APP_CONFIG.AUDIO_SAMPLE_RATE_OUTPUT });
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            streamRef.current = stream;
-
-            // Construct System Instruction (Multi-Agent Logic)
-            const initialActive = activeAgents;
-
-            const systemContext = `
-          You are facilitating a team meeting. There are ${initialActive.length} participants (AI agents) and one user.
-          You must roleplay ALL of the AI agents.
-          
-          PARTICIPANTS:
-          ${initialActive.map(a => `
-            - Name: ${a.name}
-            - Role: ${a.role}
-            - Personality: ${JSON.stringify(a.personality)}
-            - Speech Speed: ${a.speechSpeed} (Adjust your speaking pace accordingly)
-            - Description: ${a.description}
-            - Knowledge Base: ${a.knowledgeBase || 'None'}
-          `).join('\n')}
-
-          RULES:
-          1. When an agent speaks, start the sentence with "Name: ". Example: "Alex: I think we should..."
-          2. Agents can talk to the user AND to each other. Encourage collaboration.
-          3. Adjust your speaking speed and energy based on the current speaker's "Speech Speed" setting.
-          4. IMPORTANT: When calling 'createFile' or 'generateImage', you MUST pass the correct 'agentId' for that agent.
-          5. If a system message announces a new agent joining, incorporate them into the conversation immediately.
-        `;
-
-            // Inject Memories
-            let memoryContext = "";
-            initialActive.forEach(a => {
-                if (a.memory.enabled) {
-                    memoryContext += `\nMemory for ${a.name}:\n${getAgentMemory(a.id, a.memory.historyLimit)}\n`;
-                }
-            });
-
-            const fullInstruction = `
-        ${systemContext}
-        
-        Context:
-        You are in a live Google Meet call.
-        Access to shared file system enabled.
-        Tools: 'createFile' (for text docs), 'generateImage' (for visuals/diagrams), 'presentFile'.
-        
-        ${memoryContext}
-      `;
-
-            // --- Determine Speech Config ---
-            const validVoices = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
-            let voiceName = initialActive[0]?.voice || 'Puck';
-            if (!validVoices.includes(voiceName)) voiceName = 'Puck';
-
-            const speechConfig = {
-                voiceConfig: {
-                    prebuiltVoiceConfig: {
-                        voiceName: voiceName
-                    }
-                },
-            };
-
-            // --- Connect ---
-            const sessionPromise = ai.live.connect({
-                model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-                config: {
-                    responseModalities: [Modality.AUDIO],
-                    systemInstruction: fullInstruction,
-                    speechConfig: speechConfig,
-                    tools: [{ functionDeclarations: SESSION_TOOLS }],
-                    inputAudioTranscription: {},
-                    outputAudioTranscription: {},
-                },
-                callbacks: {
-                    onopen: () => {
-                        if (isMountedRef.current) {
-                            setStatus('connected');
-                            setupAudioInput(stream, sessionPromise);
-                        }
-                    },
-                    onmessage: async (message: LiveServerMessage) => {
-                        if (!isMountedRef.current) return;
-                        await handleServerMessage(message, sessionPromise, ai);
-                    },
-                    onclose: () => {
-                        if (isMountedRef.current) setStatus('disconnected');
-                    },
-                    onerror: (e: any) => {
-                        console.error('Session Error:', e);
-                        if (isMountedRef.current) {
-                            setStatus('error');
-                            setErrorMsg(e.message || 'Connection failed.');
-                        }
-                    },
-                },
-            });
-
-        } catch (err: any) {
-            console.error('Init Error:', err);
-            setStatus('error');
-            setErrorMsg(err.message);
-        }
-    }, []);
+    // Use the Agent Runtime hook
+    const {
+        state: status,
+        error: errorMsg,
+        volumeLevel,
+        isMuted,
+        setMuted,
+        files,
+        presentedFile,
+        setPresentedFile,
+        notifyAgentJoined,
+    } = useAgentSession({
+        agents: activeAgents,
+        onSessionEnd: onClose,
+    });
 
     // Watch for new agents added to the prop
     useEffect(() => {
-        if (activeAgents.length > prevAgentsLengthRef.current && sessionRef.current) {
+        if (activeAgents.length > prevAgentsLengthRef.current) {
             const newAgent = activeAgents[activeAgents.length - 1];
-
-            const notification = `
-         SYSTEM UPDATE: A new participant has joined the call.
-         Name: ${newAgent.name}
-         Role: ${newAgent.role}
-         Description: ${newAgent.description}
-         Voice: ${newAgent.voice}
-         Personality: ${JSON.stringify(newAgent.personality)}
-         
-         Please welcome them and include them in the conversation.
-       `;
-
-            sessionRef.current.sendRealtimeInput({
-                media: {
-                    mimeType: "text/plain",
-                    data: safeBtoa(notification)
-                }
-            });
+            notifyAgentJoined(newAgent);
         }
         prevAgentsLengthRef.current = activeAgents.length;
-    }, [activeAgents]);
-
-    const setupAudioInput = (stream: MediaStream, sessionPromise: Promise<any>) => {
-        if (!inputContextRef.current) return;
-        const source = inputContextRef.current.createMediaStreamSource(stream);
-        const processor = inputContextRef.current.createScriptProcessor(4096, 1, 1);
-
-        processor.onaudioprocess = (e) => {
-            if (isMicMuted) return;
-            const inputData = e.inputBuffer.getChannelData(0);
-
-            setVolumeLevel(calculateVolumeLevel(inputData));
-
-            const pcmBlob = createPcmBlob(inputData);
-            sessionPromise.then((session) => {
-                sessionRef.current = session;
-                session.sendRealtimeInput({ media: pcmBlob });
-            });
-        };
-        source.connect(processor);
-        processor.connect(inputContextRef.current.destination);
-    };
-
-    const handleServerMessage = async (message: LiveServerMessage, sessionPromise: Promise<any>, ai: GoogleGenAI) => {
-
-        // --- 1. Handle Tool Calls ---
-        if (message.toolCall) {
-            for (const fc of message.toolCall.functionCalls) {
-                let result = {};
-
-                try {
-                    if (fc.name === 'createFile') {
-                        const { fileName, content, fileType, agentId } = fc.args as any;
-                        const creatorId = agentId || activeAgents[0].id;
-                        const agentName = activeAgents.find(a => a.id === creatorId)?.name || 'AI Agent';
-                        const newFile = createNewFile(creatorId, fileName, fileType, content, agentName);
-                        setFiles(prev => [newFile, ...prev]);
-                        result = { result: `File '${fileName}' created successfully.` };
-                    }
-                    else if (fc.name === 'generateImage') {
-                        const { prompt, fileName, agentId } = fc.args as any;
-                        const creatorId = agentId || activeAgents[0].id;
-                        const agentName = activeAgents.find(a => a.id === creatorId)?.name || 'AI Agent';
-
-                        const base64Image = await generateImage(prompt);
-
-                        if (base64Image) {
-                            const newFile = createNewFile(creatorId, fileName, 'image', base64Image, agentName);
-                            setFiles(prev => [newFile, ...prev]);
-                            setPresentedFile(newFile);
-                            result = { result: `Image '${fileName}' generated and displayed.` };
-                        } else {
-                            result = { error: "Failed to generate image." };
-                        }
-                    }
-                    else if (fc.name === 'presentFile') {
-                        const { fileName } = fc.args as any;
-                        const file = files.find(f => f.name === fileName);
-                        if (file) {
-                            setPresentedFile(file);
-                            result = { result: `Presenting file '${fileName}' on screen.` };
-                        } else {
-                            result = { error: `File '${fileName}' not found.` };
-                        }
-                    }
-                } catch (e: any) {
-                    console.error("Tool Execution Error", e);
-                    result = { error: e.message };
-                }
-
-                sessionPromise.then(session => {
-                    session.sendToolResponse({
-                        functionResponses: {
-                            id: fc.id,
-                            name: fc.name,
-                            response: result
-                        }
-                    });
-                });
-            }
-        }
-
-        // --- 2. Handle Transcription ---
-        if (message.serverContent?.inputTranscription) {
-            currentInputTransRef.current += message.serverContent.inputTranscription.text;
-        }
-        if (message.serverContent?.outputTranscription) {
-            currentOutputTransRef.current += message.serverContent.outputTranscription.text;
-        }
-
-        if (message.serverContent?.turnComplete) {
-            const userText = currentInputTransRef.current.trim();
-            const modelText = currentOutputTransRef.current.trim();
-
-            if (userText) {
-                transcriptRef.current.push({ role: 'user', text: userText, timestamp: Date.now() });
-            }
-            if (modelText) {
-                transcriptRef.current.push({ role: 'model', text: modelText, timestamp: Date.now() });
-            }
-
-            currentInputTransRef.current = '';
-            currentOutputTransRef.current = '';
-        }
-
-        // --- 3. Handle Audio ---
-        if (!audioContextRef.current) return;
-        const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-
-        if (base64Audio) {
-            const ctx = audioContextRef.current;
-            nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
-            const audioBuffer = await decodeAudioData(
-                base64ToUint8Array(base64Audio), ctx, APP_CONFIG.AUDIO_SAMPLE_RATE_OUTPUT, 1
-            );
-            const source = ctx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(ctx.destination);
-            source.addEventListener('ended', () => audioSourcesRef.current.delete(source));
-            source.start(nextStartTimeRef.current);
-            nextStartTimeRef.current += audioBuffer.duration;
-            audioSourcesRef.current.add(source);
-        }
-
-        // --- 4. Interruption ---
-        if (message.serverContent?.interrupted) {
-            audioSourcesRef.current.forEach(src => src.stop());
-            audioSourcesRef.current.clear();
-            nextStartTimeRef.current = 0;
-            currentOutputTransRef.current = '';
-        }
-    };
-
-    useEffect(() => {
-        isMountedRef.current = true;
-        startSession();
-
-        return () => {
-            isMountedRef.current = false;
-            hasStartedRef.current = false; // Allow restart after cleanup
-
-            // Save transcript to ALL agents involved
-            if (transcriptRef.current.length > 0) {
-                activeAgents.forEach(a => {
-                    if (a.memory.enabled) saveSessionTranscript(a.id, transcriptRef.current);
-                });
-            }
-
-            if (sessionRef.current && typeof sessionRef.current.close === 'function') {
-                sessionRef.current.close();
-            }
-            sessionRef.current = null; // Clear the session ref
-            streamRef.current?.getTracks().forEach(track => track.stop());
-            inputContextRef.current?.close();
-            audioContextRef.current?.close();
-            audioSourcesRef.current.forEach(src => { try { src.stop(); } catch (e) { } });
-        };
-    }, []);
+    }, [activeAgents, notifyAgentJoined]);
 
     const renderFileIcon = (type: string) => {
         switch (type) {
@@ -434,10 +118,10 @@ export const LiveSessionModal: React.FC<LiveSessionModalProps> = ({ activeAgents
                         {/* Controls */}
                         <div className="mt-auto mb-8 flex gap-4">
                             <button
-                                onClick={() => setIsMicMuted(!isMicMuted)}
-                                className={`p-4 rounded-full transition-all ${isMicMuted ? 'bg-red-500 text-white' : 'bg-slate-800 text-white hover:bg-slate-700'}`}
+                                onClick={() => setMuted(!isMuted)}
+                                className={`p-4 rounded-full transition-all ${isMuted ? 'bg-red-500 text-white' : 'bg-slate-800 text-white hover:bg-slate-700'}`}
                             >
-                                {isMicMuted ? <MicOff size={24} /> : <Mic size={24} />}
+                                {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
                             </button>
 
                             <div className="relative">

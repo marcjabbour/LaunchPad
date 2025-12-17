@@ -1,2 +1,3 @@
 // Barrel export for hooks
-export * from './useAgents';
+export { useAgents } from './useAgents';
+export { useAgentSession } from './useAgentSession';
