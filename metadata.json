@@ -1,0 +1,7 @@
+{
+  "name": "LaunchPad",
+  "description": "Configure and manage a team of AI agents with distinct personalities and voices for your virtual meetings.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
