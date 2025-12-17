@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Agent, AgentFile } from '../types';
-import { AgentSession, SessionState } from '../services/agent-runtime';
+import { AgentSession, SessionState, AttachedDocument } from '../services/agent-runtime';
 
 interface UseAgentSessionConfig {
     agents: Agent[];
@@ -26,6 +26,9 @@ interface UseAgentSessionReturn {
 
     // Actions
     notifyAgentJoined: (agent: Agent) => void;
+    attachDocument: (doc: AttachedDocument) => void;
+    uploadAndAttachDocument: (file: File) => Promise<void>;
+    attachedDocuments: AttachedDocument[];
 }
 
 /**
@@ -38,6 +41,7 @@ export function useAgentSession(config: UseAgentSessionConfig): UseAgentSessionR
     const [isMuted, setIsMuted] = useState(false);
     const [files, setFiles] = useState<AgentFile[]>([]);
     const [presentedFile, setPresentedFile] = useState<AgentFile | null>(null);
+    const [attachedDocuments, setAttachedDocuments] = useState<AttachedDocument[]>([]);
 
     const sessionRef = useRef<AgentSession | null>(null);
     const hasStartedRef = useRef(false);
@@ -50,9 +54,7 @@ export function useAgentSession(config: UseAgentSessionConfig): UseAgentSessionR
 
         const session = new AgentSession({
             agents: config.agents,
-            onFileCreated: (file) => {
-                setFiles(prev => [file, ...prev]);
-            },
+            // Note: We subscribe to fileCreated event below, so no need for callback here
             onSessionEnd: config.onSessionEnd,
         });
 
@@ -87,13 +89,20 @@ export function useAgentSession(config: UseAgentSessionConfig): UseAgentSessionR
         );
 
         unsubscribe.push(
+            session.events.on('documentAttached', (doc) => {
+                setAttachedDocuments(prev => [...prev, doc]);
+            })
+        );
+
+        unsubscribe.push(
             session.events.on('error', (err) => {
                 setError(err.message);
             })
         );
 
-        // Set initial files
+        // Set initial files and documents
         setFiles(session.currentFiles);
+        setAttachedDocuments(session.getAttachedDocuments());
 
         // Connect
         session.connect();
@@ -118,6 +127,27 @@ export function useAgentSession(config: UseAgentSessionConfig): UseAgentSessionR
         sessionRef.current?.notifyAgentJoined(agent);
     }, []);
 
+    // Attach document
+    const attachDocument = useCallback((doc: AttachedDocument) => {
+        sessionRef.current?.attachDocument(doc);
+    }, []);
+
+    // Upload and attach document
+    const uploadAndAttachDocument = useCallback(async (file: File) => {
+        try {
+            const text = await file.text();
+            const doc: AttachedDocument = {
+                name: file.name,
+                content: text,
+                type: file.type || 'text/plain'
+            };
+            sessionRef.current?.attachDocument(doc);
+        } catch (e) {
+            console.error('Failed to read file:', e);
+            setError('Failed to read file content');
+        }
+    }, []);
+
     return {
         state,
         error,
@@ -128,5 +158,8 @@ export function useAgentSession(config: UseAgentSessionConfig): UseAgentSessionR
         presentedFile,
         setPresentedFile,
         notifyAgentJoined,
+        attachDocument,
+        uploadAndAttachDocument,
+        attachedDocuments
     };
 }

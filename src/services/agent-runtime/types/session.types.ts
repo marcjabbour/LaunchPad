@@ -15,6 +15,12 @@ export interface SessionConfig {
     onSessionEnd?: () => void;
 }
 
+export interface AttachedDocument {
+    name: string;
+    content: string;
+    type: string;
+}
+
 // ============================================================================
 // Event Types
 // ============================================================================
@@ -26,7 +32,9 @@ export interface SessionEvents {
     transcription: (transcript: TranscriptTurn[]) => void;
     fileCreated: (file: AgentFile) => void;
     filePresented: (file: AgentFile | null) => void;
+    documentAttached: (doc: AttachedDocument) => void;
     error: (error: Error) => void;
+    [key: string]: (...args: any[]) => void;
 }
 
 // ============================================================================

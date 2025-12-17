@@ -13,7 +13,7 @@ import { EventEmitter } from './EventEmitter';
 import { AudioEngine } from './AudioEngine';
 import { ToolExecutor, createToolExecutor } from './ToolExecutor';
 import { buildSystemPrompt, buildAgentJoinNotification } from './SystemPromptBuilder';
-import { SessionState, SessionEvents, SessionConfig } from './types';
+import { SessionState, SessionEvents, SessionConfig, AttachedDocument } from './types';
 
 /**
  * AgentSession - The core orchestrator for AI agent sessions
@@ -32,18 +32,10 @@ export class AgentSession {
     private currentInputTranscript: string = '';
     private currentOutputTranscript: string = '';
     private isConnecting: boolean = false;
+    private attachedDocuments: AttachedDocument[] = [];
 
     // Event emitter for UI communication
-    public readonly events = new EventEmitter<{
-        stateChange: (state: SessionState, error?: string) => void;
-        audioOutput: (audioData: ArrayBuffer) => void;
-        volumeLevel: (level: number) => void;
-        transcription: (transcript: TranscriptTurn[]) => void;
-        fileCreated: (file: AgentFile) => void;
-        filePresented: (file: AgentFile | null) => void;
-        error: (error: Error) => void;
-        [key: string]: (...args: any[]) => void;
-    }>();
+    public readonly events = new EventEmitter<SessionEvents>();
 
     constructor(config: SessionConfig) {
         this.config = config;
@@ -228,8 +220,39 @@ export class AgentSession {
     /**
      * Get mute state
      */
+    /**
+     * Get mute state
+     */
     get isMuted(): boolean {
         return this.audioEngine?.isMuted ?? false;
+    }
+
+    /**
+     * Attach a document to the session context
+     */
+    attachDocument(doc: AttachedDocument): void {
+        this.attachedDocuments.push(doc);
+
+        // Notify UI
+        this.events.emit('documentAttached', doc);
+
+        // Notify AI
+        const systemMessage = `
+SYSTEM UPDATE: User has attached a document.
+Name: ${doc.name}
+Type: ${doc.type}
+Content:
+${doc.content}
+        `.trim();
+
+        this.sendSystemMessage(systemMessage);
+    }
+
+    /**
+     * Get currently attached documents
+     */
+    getAttachedDocuments(): AttachedDocument[] {
+        return this.attachedDocuments;
     }
 
     // =========================================================================
@@ -281,7 +304,11 @@ export class AgentSession {
             if (result.success && result.data) {
                 const data = result.data as any;
                 if (data.file) {
-                    this.addFile(data.file);
+                    // Only add file to list if it's newly created (createFile or generateImage)
+                    // presentFile returns an existing file, so we don't add it again
+                    if (fc.name === 'createFile' || fc.name === 'generateImage') {
+                        this.addFile(data.file);
+                    }
                     if (data.present) {
                         this.events.emit('filePresented', data.file);
                     }

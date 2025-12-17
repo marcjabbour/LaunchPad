@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Agent, AgentFile } from '../../../types';
 import { useAgentSession } from '../../../hooks';
-import { X, Mic, MicOff, FileText, Image as ImageIcon, Monitor, Code, Users, Plus } from 'lucide-react';
+import { X, Mic, MicOff, FileText, Image as ImageIcon, Monitor, Code, Users, Plus, Paperclip } from 'lucide-react';
 
 interface LiveSessionModalProps {
     activeAgents: Agent[];
@@ -29,10 +29,23 @@ export const LiveSessionModal: React.FC<LiveSessionModalProps> = ({ activeAgents
         presentedFile,
         setPresentedFile,
         notifyAgentJoined,
+        uploadAndAttachDocument,
+        attachedDocuments,
     } = useAgentSession({
         agents: activeAgents,
         onSessionEnd: onClose,
     });
+
+    const [showAttachPanel, setShowAttachPanel] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            await uploadAndAttachDocument(file);
+            setShowAttachPanel(false);
+        }
+    };
 
     // Watch for new agents added to the prop
     useEffect(() => {
@@ -160,6 +173,55 @@ export const LiveSessionModal: React.FC<LiveSessionModalProps> = ({ activeAgents
                                                 ))
                                             )}
                                         </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="relative">
+                                <button
+                                    onClick={() => setShowAttachPanel(!showAttachPanel)}
+                                    className={`px-6 py-3 rounded-full transition-all text-white hover:bg-slate-700 flex items-center gap-2 font-bold shadow-lg ${showAttachPanel ? 'bg-primary' : 'bg-slate-800'}`}
+                                >
+                                    <Paperclip size={20} />
+                                    Attach
+                                </button>
+
+                                {/* Attach Popover */}
+                                {showAttachPanel && (
+                                    <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 w-72 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-2 z-30">
+                                        <div className="px-4 py-3 border-b border-slate-700 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50">Add Context</div>
+
+                                        <div className="p-2">
+                                            <input
+                                                type="file"
+                                                ref={fileInputRef}
+                                                className="hidden"
+                                                onChange={handleFileUpload}
+                                            />
+                                            <button
+                                                onClick={() => fileInputRef.current?.click()}
+                                                className="w-full text-left px-4 py-3 hover:bg-slate-700 rounded-lg flex items-center gap-3 transition-colors text-slate-200"
+                                            >
+                                                <div className="w-8 h-8 rounded-lg bg-slate-600 flex items-center justify-center">
+                                                    <FileText size={16} />
+                                                </div>
+                                                <div className="font-medium">Upload from Computer</div>
+                                            </button>
+                                        </div>
+
+                                        {attachedDocuments.length > 0 && (
+                                            <>
+                                                <div className="px-4 py-2 border-t border-slate-700 text-xs font-bold text-slate-500 uppercase tracking-wider bg-slate-900/30">Attached</div>
+                                                <div className="max-h-40 overflow-y-auto">
+                                                    {attachedDocuments.map((doc, i) => (
+                                                        <div key={i} className="px-4 py-2 flex items-center gap-2 text-sm text-slate-300 border-b border-slate-700/50 last:border-0">
+                                                            <Paperclip size={14} className="text-slate-500" />
+                                                            <span className="truncate">{doc.name}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 )}
                             </div>
