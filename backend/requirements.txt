@@ -1,0 +1,24 @@
+# Core dependencies
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+websockets==14.1
+python-multipart==0.0.12
+
+# Google AI SDKs
+google-generativeai==0.8.3
+google-adk  # Install latest version
+a2a-sdk  # Install latest version
+
+# Async and utilities
+aiofiles==24.1.0
+python-dotenv==1.0.1
+pydantic==2.10.3
+pydantic-settings==2.6.1
+
+# Audio processing
+numpy==1.26.4
+
+# Development
+pytest==8.3.4
+pytest-asyncio==0.24.0
+black==24.10.0

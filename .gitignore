@@ -22,3 +22,58 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python / Backend
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/venv/
+backend/env/
+backend/.env
+backend/.env.local
+backend/.env.*.local
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+backend/test_*.py
+backend/tests/__pycache__/
+
+# Logs
+backend/*.log
+backend/logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# MacOS
+.DS_Store
+
+# Temporary files
+backend/tmp/
+backend/temp/
