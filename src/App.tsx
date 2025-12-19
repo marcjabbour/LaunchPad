@@ -1,6 +1,6 @@
 // App.tsx - Main Application Component
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Agent, ViewState } from './types';
 import { useAgents } from './hooks';
 import { Navigation } from './components/layout';
@@ -10,9 +10,15 @@ import { DocumentsView } from './components/features/documents';
 import { IntegrationsView } from './components/features/integrations';
 import { LandingView } from './views';
 import { Plus } from 'lucide-react';
+import { BackendAgentService } from './services/agent-runtime/agents/BackendAgentService';
 
 export default function App() {
     const { agents, addAgent, updateAgent, deleteAgent, getAgentById } = useAgents();
+
+    // Initialize backend agents
+    useEffect(() => {
+        BackendAgentService.init();
+    }, []);
 
     // Navigation state - default to landing (Call-centric view)
     const [view, setView] = useState<ViewState | 'landing'>('landing');

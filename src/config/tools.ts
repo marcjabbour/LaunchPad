@@ -43,9 +43,24 @@ export const presentFileTool: FunctionDeclaration = {
     }
 };
 
+export const dispatchToAgentTool: FunctionDeclaration = {
+    name: 'dispatchToAgent',
+    description: 'Delegates a complex task to a specialized sub-agent (e.g., for coding, research, or data analysis). Use this when you cannot perform the task yourself.',
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            targetAgentId: { type: Type.STRING, description: 'The ID of the specialized agent to use.' },
+            task: { type: Type.STRING, description: 'The specific capability/task to execute (e.g., "code_gen", "research").' },
+            input: { type: Type.STRING, description: 'The input instructions or data for the agent.' }
+        },
+        required: ['targetAgentId', 'task', 'input']
+    }
+};
+
 // All available tools for live sessions
 export const SESSION_TOOLS: FunctionDeclaration[] = [
     createFileTool,
     generateImageTool,
     presentFileTool,
+    dispatchToAgentTool,
 ];

@@ -298,7 +298,28 @@ ${doc.content}
 
     private async handleToolCalls(functionCalls: any[]): Promise<void> {
         for (const fc of functionCalls) {
-            const result = await this.toolExecutor.execute(fc.name, fc.args);
+            let result;
+
+            // Intercept dispatchToAgent to use the Router
+            if (fc.name === 'dispatchToAgent') {
+                const { targetAgentId, task, input } = fc.args;
+                try {
+                    // Import router dynamically or use the global instance
+                    const { router } = await import('./router/A2ARouter');
+
+                    // Notify user (Ack)
+                    this.sendSystemMessage(`[System] Handing off task '${task}' to agent...`);
+
+                    const response = await router.route(targetAgentId, task, { message: input });
+                    result = { success: true, data: { message: JSON.stringify(response) } };
+                } catch (error: any) {
+                    console.error('Dispatch Error:', error);
+                    result = { success: false, error: error.message };
+                }
+            } else {
+                // Standard tools
+                result = await this.toolExecutor.execute(fc.name, fc.args);
+            }
 
             // Handle file operations
             if (result.success && result.data) {

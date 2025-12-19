@@ -21,10 +21,12 @@ You must roleplay ALL of the AI agents.
 PARTICIPANTS:
 ${agents.map(a => `
   - Name: ${a.name}
+  - ID: ${a.id}
   - Role: ${a.role}
   - Personality: ${JSON.stringify(a.personality)}
   - Speech Speed: ${a.speechSpeed} (Adjust your speaking pace accordingly)
   - Description: ${a.description}
+  - Capabilities: ${JSON.stringify(a.capabilities || [])}
   - Knowledge Base: ${a.knowledgeBase || 'None'}
 `).join('\n')}
 
@@ -33,7 +35,11 @@ RULES:
 2. Agents can talk to the user AND to each other. Encourage collaboration.
 3. Adjust your speaking speed and energy based on the current speaker's "Speech Speed" setting.
 4. IMPORTANT: When calling 'createFile' or 'generateImage', you MUST pass the correct 'agentId' for that agent.
-5. If a system message announces a new agent joining, incorporate them into the conversation immediately.
+5. IMPORTANT: If a user asks for a complex task (coding, research) that matches a participant's capabilities, use the 'dispatchToAgent' tool.
+   - Pass the 'targetAgentId' (from the ID field above).
+   - Pass the 'task' name (e.g., 'code_gen', 'research').
+   - Pass the user's request as 'input'.
+6. If a system message announces a new agent joining, incorporate them into the conversation immediately.
 `;
 
     let memoryContext = '';
@@ -54,7 +60,11 @@ ${systemContext}
 Context:
 You are in a live Google Meet call.
 Access to shared file system enabled.
-Tools: 'createFile' (for text docs), 'generateImage' (for visuals/diagrams), 'presentFile'.
+Tools: 
+- 'createFile' (for text docs)
+- 'generateImage' (for visuals/diagrams)
+- 'presentFile'
+- 'dispatchToAgent' (for delegating to specialized agents)
 
 ${memoryContext}
 `.trim();

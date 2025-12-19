@@ -24,4 +24,11 @@ export interface Agent {
   memory: MemoryConfig;
   avatarId: number;
   knowledgeBase?: string;
+  // A2A / Backend Configuration
+  capabilities?: { name: string; description: string }[];
+  runtimeConfig?: {
+    type: 'adk' | 'langgraph' | 'mock';
+    endpoint?: string;
+    config?: Record<string, any>;
+  };
 }

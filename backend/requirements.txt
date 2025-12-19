@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+google-adk
+langgraph
+langchain
+langchain-google-genai
+a2a-sdk
+python-dotenv
+pydantic
